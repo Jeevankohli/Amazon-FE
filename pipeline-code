@@ -1,0 +1,91 @@
+pipeline
+{
+    agent any
+    tools
+    {
+        jdk 'jdk17'
+        nodejs 'nodejs16'
+    }
+    environment
+    {
+        SCANNER_HOME= tool 'sonar-scanner'
+    }
+    stages
+    {
+        stage('CW')
+        {
+           steps
+           {
+               cleanWs()
+           }
+        }
+        stage('Git')
+        {
+            steps
+            {
+               git' https://github.com/Jeevankohli/Amazon-FE.git'
+            }
+        }
+        stage("Sonarqube Analysis ")
+        {
+            steps
+            {
+                withSonarQubeEnv('sonar-server') 
+                {
+                    sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=Amazon-clone \
+                    -Dsonar.projectKey=Amazon-clone '''
+                }
+            }
+        }
+        stage('Sonar-QG')
+        {
+            steps
+            {
+                waitForQualityGate abortPipeline: false, credentialsId: 'sonar-token'
+            }
+        }
+        stage('OWASP FS SCAN') {
+            steps {
+                dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit', odcInstallation: 'Dp'
+                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+            }
+        }
+        stage('TRIVY FS SCAN') {
+            steps {
+                sh "trivy fs . > trivyfs.txt"
+            }
+        }
+        stage('Docker-Image-Build-Push')
+        {
+            steps
+            {
+                script
+                {
+                    withDockerRegistry(credentialsId: 'docker') 
+                    {
+                       sh '''
+                        docker build -t amazon .
+                        docker tag amazon jeevan32/amazon
+                        docker push jeevan32/amazon:latest
+                        '''
+                    }
+                }
+            }
+        }
+        stage("TRIVY")
+        {
+            steps
+            {
+                sh "trivy image jeevan32/amazon:latest > trivyimage.txt" 
+            }
+        }
+        stage('Docker-container')
+        {
+            steps
+            {
+                sh 'docker run -d --name amazon32 -p 3000:3000 jeevan32/amazon:latest'
+            }
+        }
+
+    }
+}
